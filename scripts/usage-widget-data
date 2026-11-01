@@ -1,0 +1,13 @@
+#!/bin/bash
+# usage-widget-data — 为桌面小组件生成数据快照（原子写）
+set -euo pipefail
+
+# 优先用 PATH 里的，否则回退到安装目录
+MON="$(command -v usage-monitor || echo "$HOME/.local/bin/usage-monitor")"
+BASE="$HOME/.local/share/usage-monitor"
+OUT="$BASE/widget-data.json"
+TMP="$OUT.tmp.$$"
+mkdir -p "$BASE"
+"$MON" --json --days 7 > "$TMP"
+mv -f "$TMP" "$OUT"
+echo "widget-data.json 已更新（$(wc -c < "$OUT" | tr -d ' ') 字节）"

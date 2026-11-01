@@ -1,0 +1,26 @@
+{
+  "provider": "grokbot",
+  "updated_at": "2026-11-01T07:05:00Z",
+  "plan": "<套餐名>",
+  "account": "<账号>",
+  "windows": [
+    {
+      "label": "5 小时",
+      "used_pct": 0,
+      "reset_at": "2026-11-01T09:05:00Z"
+    },
+    {
+      "label": "7 天",
+      "used_pct": 0,
+      "reset_at": "2026-11-05T00:00:00Z"
+    }
+  ],
+  "metric": {
+    "label": "剩余额度",
+    "value": "<金额或次数>",
+    "sub": "<补充说明>"
+  },
+  "notes": [
+    "grokbot 自己查的，非公开接口"
+  ]
+}

@@ -1,0 +1,110 @@
+#!/bin/bash
+# usage-wallpaper — 把用量监视器渲染成 PNG 并设为桌面壁纸（低开销版）
+#
+# 用法：
+#   usage-wallpaper                 生成并设为壁纸
+#   usage-wallpaper --force         忽略数据指纹，强制重新渲染
+#   usage-wallpaper --no-set        只生成 PNG，不改壁纸
+#   usage-wallpaper --html-only     只生成壁纸版 HTML
+#   usage-wallpaper --size 2880x1800
+#
+# 省开销的三处：
+#   1. 独立临时 profile —— 不加载日常 Chrome 的扩展/同步/组件更新
+#   2. 数据指纹比对 —— 数据没变直接跳过浏览器渲染（省掉最重那一步）
+#   3. 精简启动参数 —— 关掉后台网络、默认应用检查、音频等
+
+set -euo pipefail
+
+# 优先用 PATH 里的，否则回退到安装目录
+MON="$(command -v usage-monitor || echo "$HOME/.local/bin/usage-monitor")"
+
+BASE="$HOME/.local/share/usage-monitor"
+HTML="$BASE/wallpaper.html"
+PNG="$BASE/wallpaper.png"
+FPFILE="$BASE/wallpaper.html.fingerprint"
+LASTFP="$BASE/.last-wallpaper-fp"
+CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+SIZE="${WALLPAPER_SIZE:-2560x1664}"
+DO_SET=1
+HTML_ONLY=0
+FORCE=0
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --size)      SIZE="$2"; shift 2 ;;
+    --force)     FORCE=1; shift ;;
+    --no-set)    DO_SET=0; shift ;;
+    --html-only) HTML_ONLY=1; DO_SET=0; shift ;;
+    -h|--help)   sed -n '2,16p' "$0"; exit 0 ;;
+    *)           echo "未知参数：$1" >&2; exit 2 ;;
+  esac
+done
+
+START=$SECONDS
+
+# 1. 生成 HTML（网络请求很轻，每次都做，保证数据新鲜）
+"$MON" --html "$HTML" --wallpaper --days 7
+NEWFP="$(cat "$FPFILE" 2>/dev/null || echo none)"
+echo "HTML: $HTML  fp=$NEWFP"
+
+[ "$HTML_ONLY" -eq 1 ] && exit 0
+
+# 2. 数据没变就跳过浏览器（最重的一步）
+if [ "$FORCE" -eq 0 ] && [ -f "$PNG" ] && [ -f "$LASTFP" ]; then
+  if [ "$(cat "$LASTFP")" = "$NEWFP" ]; then
+    echo "数据无变化（fp=$NEWFP），跳过渲染与设置，耗时 $((SECONDS-START))s"
+    exit 0
+  fi
+fi
+
+if [ ! -x "$CHROME" ]; then
+  echo "找不到 Google Chrome：$CHROME" >&2
+  exit 1
+fi
+
+# 3. 无头 Chrome 截图，用一次性 profile
+PROFILE="$(mktemp -d /tmp/usage-wallpaper-prof.XXXXXX)"
+TIMELOG="$(mktemp /tmp/usage-wallpaper-time.XXXXXX)"
+cleanup() { rm -rf "$PROFILE" "$TIMELOG"; }
+trap cleanup EXIT
+
+WIN="${SIZE/x/,}"
+RENDER_START=$SECONDS
+/usr/bin/time -l "$CHROME" \
+  --headless=new \
+  --disable-gpu \
+  --hide-scrollbars \
+  --no-first-run \
+  --no-default-browser-check \
+  --disable-extensions \
+  --disable-sync \
+  --disable-background-networking \
+  --disable-default-apps \
+  --disable-component-update \
+  --metrics-recording-only \
+  --mute-audio \
+  --user-data-dir="$PROFILE" \
+  --screenshot="$PNG" \
+  --window-size="$WIN" \
+  "file://$HTML" >/dev/null 2>"$TIMELOG" || true
+RENDER_SECS=$((SECONDS-RENDER_START))
+RSS_BYTES="$(grep -i "maximum resident set size" "$TIMELOG" | awk '{print $1}' | head -1)"
+RSS_MB=$(( ${RSS_BYTES:-0} / 1048576 ))   # macOS time -l 报的是字节
+
+if [ ! -s "$PNG" ]; then
+  echo "截图失败，检查 Chrome 是否能以 --headless 运行" >&2
+  tail -3 "$TIMELOG" >&2 || true
+  exit 1
+fi
+echo "PNG : $PNG ($(du -h "$PNG" | cut -f1), $SIZE, 渲染 ${RENDER_SECS}s, 峰值 ${RSS_MB}MB)"
+
+[ "$DO_SET" -eq 0 ] && exit 0
+
+# 4. 设为壁纸
+osascript <<EOF
+tell application "System Events"
+  tell every desktop to set picture to "$PNG"
+end tell
+EOF
+echo "$NEWFP" > "$LASTFP"
+echo "已设为壁纸，总耗时 $((SECONDS-START))s"

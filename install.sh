@@ -110,14 +110,33 @@ if [ "$SKIP_AGENTS" -eq 1 ]; then
   exit 0
 fi
 
+# 笔记本睡眠时 StartInterval 不推进（只在清醒时间累积），
+# 所以整小时的间隔一律用 StartCalendarInterval —— 它有「唤醒后补跑」语义。
+schedule_block() {
+  local secs="$1"
+  if [ $((secs % 3600)) -eq 0 ]; then
+    local step=$((secs / 3600))
+    if [ "$step" -eq 1 ]; then
+      printf '    <key>StartCalendarInterval</key>\n    <dict>\n        <key>Minute</key>\n        <integer>0</integer>\n    </dict>'
+      return
+    fi
+    if [ "$step" -le 12 ]; then
+      local hours="" h
+      for ((h = 0; h < 24; h += step)); do hours="$hours<integer>$h</integer>"; done
+      printf '    <key>StartCalendarInterval</key>\n    <dict>\n        <key>Minute</key>\n        <integer>0</integer>\n        <key>Hour</key>\n        <array>%s</array>\n    </dict>' "$hours"
+      return
+    fi
+  fi
+  printf '    <key>StartInterval</key>\n    <integer>%s</integer>' "$secs"
+}
+
 write_plist() {
   local path="$1" label="$2" interval="$3"
   local schedule program
   if [ -n "$interval" ]; then
     schedule="    <key>RunAtLoad</key>
     <true/>
-    <key>StartInterval</key>
-    <integer>$interval</integer>"
+$(schedule_block "$interval")"
   else
     schedule="    <key>RunAtLoad</key>
     <true/>

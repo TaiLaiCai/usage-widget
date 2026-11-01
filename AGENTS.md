@@ -111,6 +111,7 @@ launchctl print gui/$(id -u)/com.local.usage-widget | grep -E "state|pid"
 
 ## 环境坑（实测踩过）
 
+- **`StartInterval` 在睡眠期不推进**：笔记本上用它会导致合盖数小时后数据仍是旧的。整小时间隔一律用 `StartCalendarInterval`，唤醒后会补跑
 - **launchd label 会卡死**：`bootout` 被中断后，同名 label 再 `bootstrap` 会稳定报 `Input/output error`。换 label 或重启机器
 - **`/usr/bin/top`、`ps`、`log` 在沙箱里不可用**：测内存用 `proc_pid_rusage` 的 `ri_resident_size`
 - **macOS 的 `/usr/bin/time -l` 报字节**，不是 KB

@@ -109,6 +109,14 @@ launchctl bootout gui/$(id -u)/com.local.usage-widget-data
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.local.usage-widget-data.plist
 ```
 
+## 笔记本睡眠时的行为
+
+数据采集用 **`StartCalendarInterval` 每小时整点**触发，不是 `StartInterval`。
+
+原因：`StartInterval` 只在系统清醒时累积计时，合盖睡眠期间不推进——实测睡眠 5 小时后 `launchctl print` 里 `runs` 仍是 1，面板会显示几小时前的旧数据。calendar 触发有补跑语义，错过的时间点会在唤醒后执行一次。
+
+睡眠期间不产生任何网络请求；唤醒后几十秒内面板就会更新。
+
 ## 架构
 
 ```

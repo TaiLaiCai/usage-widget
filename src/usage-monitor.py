@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-usage-monitor — 五个 coding plan 的额度监视器
+usage-monitor — 各家 coding plan 的额度监视器
 
 覆盖：
   Codex (ChatGPT Plus / Pro)   chatgpt.com/backend-api/wham/usage
   Claude (Pro / Max)           api.anthropic.com/api/oauth/usage
   智谱 GLM Coding Plan          open.bigmodel.cn/api/monitor/usage/quota/limit
   MiniMax Coding Plan          api.minimaxi.com/v1/coding_plan/remains
-  Gemini 订阅                   cloudcode-pa.googleapis.com（需 gemini-cli OAuth 登录）
+  Antigravity（Google AI Pro）  cloudcode-pa.googleapis.com（套餐层级 + 本地活跃度）
   DeepSeek 余额                 api.deepseek.com/user/balance（按 token 计费，只有余额）
   Grok Bot                     无公开额度接口（凭据为 Electron 密封存储，仅显示状态）
 
@@ -29,6 +29,7 @@ import argparse
 import hashlib
 import json
 import os
+import plistlib
 import sqlite3
 import subprocess
 import sys
@@ -762,15 +763,47 @@ def collect_deepseek(fetch=True):
     return item
 
 
-GEMINI_TIER_LABELS = {
+ANTIGRAVITY_TIER_LABELS = {
     "free-tier": "免费层",
-    "standard-tier": "标准层",
+    "standard-tier": "Antigravity",
     "legacy-tier": "旧版层",
 }
 
+ANTIGRAVITY_PAID_TIER_LABELS = {
+    "g1-pro-tier": "Google AI Pro",
+    "g1-ultra-tier": "Google AI Ultra",
+}
 
-def _gemini_oauth():
-    """gemini-cli 登录后留下的 OAuth 凭据。"""
+ANTIGRAVITY_APP = Path("/Applications/Gemini.app")
+
+
+def _as_aware(dt):
+    """parse_ts 对不带时区的 ISO 串会给出 naive datetime，统一按 UTC 处理。"""
+    if dt is None:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def _antigravity_version():
+    """本机 Antigravity 的版本号，用作 loadCodeAssist 的 ideVersion。"""
+    try:
+        with open(ANTIGRAVITY_APP / "Contents" / "Info.plist", "rb") as handle:
+            meta = plistlib.load(handle)
+        version = str(meta.get("CFBundleShortVersionString") or "").strip()
+        if version:
+            return version
+    except Exception:
+        pass
+    return None
+
+
+def _antigravity_platform():
+    machine = (os.uname().machine or "").lower() if hasattr(os, "uname") else ""
+    return "DARWIN_ARM64" if machine in ("arm64", "aarch64") else "DARWIN_AMD64"
+
+
+def _google_oauth():
+    """gemini-cli 登录后留下的 Google OAuth 凭据，Antigravity 也认这个账号。"""
     for path in (HOME / ".gemini" / "oauth_creds.json",
                  HOME / ".config" / "gemini" / "oauth_creds.json"):
         if not path.exists():
@@ -785,40 +818,162 @@ def _gemini_oauth():
     return None, None, None
 
 
-def _gemini_api_key():
-    for env_name in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_API_KEY"):
-        token = os.environ.get(env_name)
-        if token:
-            return token.strip(), f"env:{env_name}"
-    return None, None
+def _antigravity_local_activity(days=7):
+    """Antigravity 自己的会话索引（agy 维护的 sqlite）。
 
-
-def collect_gemini(fetch=True):
-    """Gemini 订阅额度：走 gemini-cli 的 cloudcode-pa 接口，需要 OAuth 登录。
-
-    真实契约（取自 gemini-cli 0.66.0 源码）：
-      1) POST v1internal:loadCodeAssist
-         body: {metadata: {ideName, pluginType: "GEMINI", ideVersion, platform, updateChannel},
-                mode: "HEALTH_CHECK"}
-         → currentTier.id（free-tier / standard-tier / legacy-tier）+ cloudaicompanionProject
-      2) POST v1internal:retrieveUserQuota
-         body: {project: <上一步的 project>}
-         → buckets[{modelId, remainingAmount, remainingFraction, resetTime}]
-       免费层账号调用第 2 步会返回 403（无该产品的有效许可 #3501）。
+    conversation_summaries 里有 step_count 与 last_modified_time，能反映真实使用量：
+    官方不提供 token 口径，这里只统计会话数与步数。
     """
-    item = _blank("gemini", "Gemini")
-    oauth, source, raw = _gemini_oauth()
+    db = HOME / ".gemini" / "antigravity" / "conversation_summaries.db"
+    if not db.exists():
+        return None
+    try:
+        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=3)
+        try:
+            rows = con.execute(
+                "select step_count, last_modified_time from conversation_summaries").fetchall()
+        finally:
+            con.close()
+    except Exception:
+        return None
+    if not rows:
+        return None
+    today = datetime.now().astimezone().date()
+    cutoff = today - timedelta(days=max(0, days - 1))
+    out = {"today_sessions": 0, "today_steps": 0, "range_sessions": 0,
+           "range_steps": 0, "sessions": len(rows), "steps": 0, "last": None}
+    for steps, stamp in rows:
+        steps = int(steps or 0)
+        out["steps"] += steps
+        when = _as_aware(parse_ts(stamp))
+        if when is None:
+            continue
+        if out["last"] is None or when > out["last"]:
+            out["last"] = when
+        day = when.astimezone().date()
+        if day == today:
+            out["today_sessions"] += 1
+            out["today_steps"] += steps
+        if day >= cutoff:
+            out["range_sessions"] += 1
+            out["range_steps"] += steps
+    return out
+
+
+def _antigravity_activity_metric(activity, days=7):
+    """没有配额可画时占住数值位：组件只画 used_pct 非空的窗口，说明性窗口它不认。"""
+    if not activity:
+        return None
+    value = f"{activity['today_sessions']} 会话"
+    if activity["today_steps"]:
+        value += f" · {activity['today_steps']} 步"
+    sub = f"今日"
+    if activity["range_sessions"]:
+        sub += f" · 近 {days} 天 {activity['range_sessions']} 会话"
+    return {"label": "本机活跃", "value": value, "sub": sub}
+
+
+ANTIGRAVITY_WINDOW_HINTS = (
+    ("5h", "5 小时"), ("5-hour", "5 小时"), ("5 hour", "5 小时"),
+    ("five_hour", "5 小时"), ("five-hour", "5 小时"), ("five hour", "5 小时"),
+    ("weekly", "7 天"), ("week", "7 天"), ("7d", "7 天"), ("7-day", "7 天"),
+)
+
+
+def _antigravity_window_name(text):
+    low = str(text or "").lower()
+    for needle, label in ANTIGRAVITY_WINDOW_HINTS:
+        if needle in low:
+            return label
+    return str(text or "")
+
+
+def _antigravity_window(bucket, group_label=""):
+    """QuotaSummaryBucket → 统一的 window 结构（统一换成「已用」）。"""
+    remaining = bucket.get("remainingFraction")
+    try:
+        used = None if remaining is None else max(0.0, (1.0 - float(remaining)) * 100.0)
+    except (TypeError, ValueError):
+        used = None
+    display = bucket.get("displayName") or ""
+    label = _antigravity_window_name(bucket.get("window") or display) \
+        or bucket.get("bucketId") or "额度"
+    detail = []
+    if group_label and group_label not in label:
+        detail.append(str(group_label))
+    if bucket.get("description"):
+        detail.append(str(bucket["description"]))
+    amount = bucket.get("remainingAmount")
+    if amount is not None:
+        try:
+            left = float(amount)
+            if used:
+                detail.append(f"剩余 {int(left)} / {round(left / (1.0 - used / 100.0))}")
+            else:
+                detail.append(f"剩余 {int(left)}")
+        except (TypeError, ValueError, ZeroDivisionError):
+            detail.append(f"剩余 {amount}")
+    if bucket.get("disabled"):
+        detail.append("当前不可用")
+    window = {"label": label, "used_pct": used, "reset": parse_ts(bucket.get("resetTime"))}
+    if detail:
+        window["detail"] = " · ".join(detail)
+    return window
+
+
+def _antigravity_quota_windows(quota):
+    windows = []
+    for group in quota.get("groups") or []:
+        if not isinstance(group, dict):
+            continue
+        group_label = group.get("displayName") or ""
+        for bucket in group.get("buckets") or []:
+            if isinstance(bucket, dict):
+                windows.append(_antigravity_window(bucket, group_label))
+    if not windows:
+        for bucket in quota.get("buckets") or []:
+            if isinstance(bucket, dict):
+                windows.append(_antigravity_window(bucket))
+    return windows
+
+
+def collect_antigravity(fetch=True):
+    """Antigravity（Google AI Pro 里的 Gemini 编程代理）：套餐层级 + 本地活跃度。
+
+    实测契约（2026-11-02，Antigravity 1.138.0 / macOS）：
+      1) POST v1internal:loadCodeAssist
+         body: {metadata: {ideName: "ANTIGRAVITY", pluginType: "GEMINI",
+                           ideVersion: <App 版本>, platform: "DARWIN_ARM64",
+                           updateChannel: "stable"},
+                mode: "HEALTH_CHECK"}
+         → currentTier（standard-tier，name=Antigravity）、paidTier（g1-pro-tier=Google AI Pro）、
+           cloudaicompanionProject、ineligibleTiers（地区不支持会写在这里）
+      2) POST v1internal:retrieveUserQuotaSummary {project}
+         → groups[{displayName, buckets[{displayName, window, remainingFraction,
+                                        remainingAmount, resetTime, disabled}]}]
+
+    第 2 步需要 Antigravity 自己的 OAuth 客户端（auth/aicode 权限）。它的凭据存在
+    ~/Library/Application Support/com.google.GeminiMacOS/Data/user1/auth（加密，由本机
+    bridge 转交 agy 子进程），第三方读不到；用 gemini-cli 的 token（cloud-platform）调用
+    稳定返回 403 The caller does not have permission。因此配额是可选增强，
+    拿不到就退回本地会话统计。
+    """
+    item = _blank("antigravity", "Antigravity")
+    activity = _antigravity_local_activity()
+    item["metric"] = _antigravity_activity_metric(activity)
+    if activity and activity.get("last"):
+        age = (datetime.now(timezone.utc) - activity["last"]).total_seconds()
+        item["notes"].append(f"最后活动 {fmt_ago(max(0, age))}")
+    elif (HOME / ".gemini" / "antigravity" / "conversation_summaries.db").exists():
+        item["notes"].append("本机会话索引还是空的，用几次 Antigravity 后这里会出现活跃度")
+
+    oauth, source, raw = _google_oauth()
     if not oauth:
-        api_key, key_source = _gemini_api_key()
-        if api_key:
-            item.update(status="local_only", source=key_source, notes=[
-                "当前是 API key 模式，Gemini API 没有订阅额度接口（只有速率限制）",
-                "若要查订阅额度，装 gemini-cli 并用 Google 账号登录一次",
-            ])
-            return item
-        item.update(status="missing", notes=[
-            "未找到 Gemini 凭据：~/.gemini/oauth_creds.json 不存在，也没有 GEMINI_API_KEY",
-            "装 gemini-cli 并登录后，这里会自动显示订阅额度",
+        item["status"] = "missing"
+        item["metric"] = None      # 缺凭据优先说缺凭据，别拿活跃度顶上去
+        item["notes"].extend([
+            "未找到 Google OAuth 凭据：~/.gemini/oauth_creds.json",
+            "打开一次 Antigravity，或用 gemini-cli 登录后就能读到套餐层级",
         ])
         return item
     item["source"] = source
@@ -834,84 +989,77 @@ def collect_gemini(fetch=True):
     if not fetch:
         return item
 
-    version = "0.66.0"
+    version = _antigravity_version() or "1.0.0"
     headers = {
         "Authorization": f"Bearer {oauth}",
-        "User-Agent": f"GeminiCLI/{version}",
+        "User-Agent": f"Antigravity/{version}",
         "Accept": "application/json",
     }
     metadata = {
-        "ideName": "IDE_UNSPECIFIED",
+        "ideName": "ANTIGRAVITY",
         "pluginType": "GEMINI",
         "ideVersion": version,
-        "platform": "PLATFORM_UNSPECIFIED",
+        "platform": _antigravity_platform(),
         "updateChannel": "stable",
     }
     status, tier = http_json(
         "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
         headers, method="POST", body={"metadata": metadata, "mode": "HEALTH_CHECK"})
     if status != 200:
-        item.update(status="error", notes=[f"loadCodeAssist {_fmt_err(status, tier)}"])
+        item["status"] = "error"
+        item["metric"] = None
+        item["notes"].append(f"loadCodeAssist {_fmt_err(status, tier)}")
         return item
 
     current = tier.get("currentTier") or {}
-    tier_id = current.get("id")
-    if tier_id:
-        item["plan"] = GEMINI_TIER_LABELS.get(tier_id, tier_id)
+    paid = tier.get("paidTier") or {}
+    plan = (paid.get("name")
+            or ANTIGRAVITY_PAID_TIER_LABELS.get(paid.get("id"))
+            or ANTIGRAVITY_TIER_LABELS.get(current.get("id"))
+            or current.get("name"))
+    if plan:
+        item["plan"] = plan
     tier_name = current.get("name")
-    if tier_name:
-        item["notes"].append(tier_name)
-    if tier_id == "free-tier":
-        item["notes"].append(
-            "免费层个体用户已被 Google 停用于 CLI（UNSUPPORTED_CLIENT），"
-            "官方要求迁移 antigravity.google；换有 Code Assist 许可的账号才会出配额")
-    project = tier.get("cloudaicompanionProject")
-
-    status, quota = http_json(
-        "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota",
-        headers, method="POST", body={"project": project} if project else {})
-    if status != 200:
-        reason = ""
-        if isinstance(quota, dict):
-            reason = " ".join(str(quota.get("_error") or "").split())
-        if status == 403:
-            item["notes"].append("配额桶接口 HTTP 403（#3501 无有效许可），只能看到套餐层级")
-        elif status != 0:
-            item["notes"].append(f"配额接口不可用（HTTP {status}）" + (f"：{reason[:110]}" if reason else ""))
-        else:
-            item["notes"].append("配额接口不可用：网络不可达")
-        return item
-
-    buckets = quota.get("buckets") or []
-    for bucket in buckets:
-        model = bucket.get("modelId")
-        fraction = bucket.get("remainingFraction")
-        amount = bucket.get("remainingAmount")
-        if not model:
+    if tier_name and tier_name != plan:
+        item["notes"].append(f"层级 {tier_name}（{current.get('id')}）")
+    for blocked in tier.get("ineligibleTiers") or []:
+        if not isinstance(blocked, dict):
             continue
-        window = {
-            "label": model,
-            "used_pct": None if fraction is None else max(0.0, (1.0 - float(fraction)) * 100.0),
-            "reset": parse_ts(bucket.get("resetTime")),
-        }
-        if amount is not None:
-            try:
-                remaining = int(amount)
-                total = round(remaining / float(fraction)) if fraction else remaining
-                window["detail"] = f"剩余 {remaining} / {total}"
-            except (TypeError, ValueError, ZeroDivisionError):
-                window["detail"] = f"剩余 {amount}"
-        item["windows"].append(window)
-    if not buckets:
-        item["notes"].append("接口未返回配额桶，可能该套餐没有日配额")
+        tier_id = blocked.get("tierId") or ""
+        label = ANTIGRAVITY_TIER_LABELS.get(tier_id, blocked.get("tierName") or tier_id)
+        if blocked.get("reasonCode") == "UNSUPPORTED_LOCATION":
+            item["notes"].append(f"{label}不可用：当前地区不在支持范围")
+            continue
+        reason = " ".join(str(blocked.get("reasonMessage") or "").split())
+        if reason:
+            item["notes"].append(f"{label}不可用：{reason[:110]}")
+
+    project = tier.get("cloudaicompanionProject")
+    status, quota = http_json(
+        "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+        headers, method="POST", body={"project": project} if project else {})
+    if status == 200:
+        windows = _antigravity_quota_windows(quota if isinstance(quota, dict) else {})
+        if windows:
+            item["windows"] = windows + item["windows"]
+        else:
+            item["notes"].append("配额接口没返回分组，可能这个账号没有单独配额")
+    elif status == 403:
+        item["notes"].append(
+            "配额接口 403：模型额度只对 Antigravity 官方客户端开放（凭据加密），"
+            "第三方 token 读不到，这里只显示套餐与本地活跃度")
+    else:
+        item["notes"].append(f"配额接口不可用（{_fmt_err(status, quota)}）")
+
+    if any(window.get("used_pct") is not None for window in item["windows"]):
+        item["metric"] = None  # 有配额条时就不占数值位了
     return item
 
-
 PROVIDERS = (collect_codex, collect_claude, collect_zhipu, collect_minimax,
-             collect_gemini, collect_deepseek, collect_grokbot)
+             collect_antigravity, collect_deepseek, collect_grokbot)
 
 # 面板/JSON 里的显示顺序：采集顺序与展示顺序解耦
-DISPLAY_ORDER = ("grokbot", "codex", "claude", "deepseek", "zhipu", "minimax", "gemini")
+DISPLAY_ORDER = ("grokbot", "codex", "claude", "deepseek", "zhipu", "minimax", "antigravity")
 
 
 # ── 本机会话统计 ────────────────────────────────────────────────────────
@@ -1096,6 +1244,77 @@ def local_codex(days):
     return {"source": "codex", "files": files, "days": agg}
 
 
+def _deepseek_totals(path):
+    """DeepSeek TUI 的会话文件：只有整会话累计 token，没有逐条 usage。"""
+    try:
+        with open(path, encoding="utf-8", errors="ignore") as handle:
+            data = json.load(handle)
+    except (OSError, ValueError):
+        return None
+    meta = data.get("metadata") or {}
+    try:
+        tokens = int(meta.get("total_tokens") or 0)
+        messages = int(meta.get("message_count") or 0)
+    except (TypeError, ValueError):
+        return None
+    if not tokens and not messages:
+        return None
+    return {"tokens": tokens, "msgs": messages, "created": parse_ts(meta.get("created_at"))}
+
+
+def local_deepseek(days):
+    """DeepSeek TUI 会话统计。
+
+    它只写整会话的 total_tokens，没有逐条 usage 和时间戳，所以按增量记账：
+    首次见到时整段落回会话创建日，之后每次扫描只把增量记到今天。
+    会话被压缩/重建（计数变小）时整段重算。
+
+    token 不分输入输出，统一记入 in_total，渲染层有脚注说明。
+    """
+    root = HOME / ".deepseek" / "sessions"
+    if not root.is_dir():
+        return None
+    cutoff_str = str(_cutoff_date(days))
+    section = _load_local_cache().get("deepseek", {})
+    agg = {}
+    files = 0
+    seen = set()
+    today = str(datetime.now().date())
+    for path in sorted(root.glob("*.json")):
+        totals = _deepseek_totals(path)
+        if totals is None:
+            continue
+        files += 1
+        key = str(path)
+        seen.add(key)
+        entry = section.get(key) or {}
+        prev_tokens = int(entry.get("tokens") or 0)
+        prev_msgs = int(entry.get("msgs") or 0)
+        days_map = dict(entry.get("days") or {})
+        tokens, msgs = totals["tokens"], totals["msgs"]
+        if tokens < prev_tokens or msgs < prev_msgs:
+            prev_tokens, prev_msgs, days_map = 0, 0, {}
+        delta_tokens = tokens - prev_tokens
+        delta_msgs = msgs - prev_msgs
+        if delta_tokens or delta_msgs:
+            created = totals["created"]
+            day = str(created.astimezone().date()) if not prev_tokens and created else today
+            bucket = days_map.setdefault(day, _new_day())
+            bucket["msgs"] += delta_msgs
+            bucket["in_total"] += delta_tokens
+        section[key] = {"tokens": tokens, "msgs": msgs, "days": days_map}
+        _merge_days(agg, days_map, cutoff_str)
+    for key in [k for k in section if k not in seen]:
+        section.pop(key, None)
+    _save_local_section("deepseek", section)
+    return {"source": "deepseek", "files": files, "days": agg}
+
+
+def _unit_label(source, count):
+    """codex 是会话级记录，claude / deepseek 记的是消息条数。"""
+    return f"{count} 会话" if source == "codex" else f"{count} 条"
+
+
 # ── 用量汇总 ────────────────────────────────────────────────────────────
 def summarize_local(local, days):
     """把 claude / codex 的按日记录汇总成 今日 / 近 N 天 / 本月 三档。
@@ -1138,7 +1357,7 @@ def summarize_local(local, days):
 
     parts = []
     for source, sub in sorted(month_per.items(), key=lambda kv: -kv[1]["burned"]):
-        unit = "条" if source == "claude" else "会话"
+        unit = "条" if source != "codex" else "会话"
         parts.append(f"{source} {human(sub['burned'])}（{sub['msgs']} {unit}）")
     return {"rows": [{"label": label, **data} for label, data in rows],
             "by_source": month_per,
@@ -1191,7 +1410,7 @@ def render_text(items, local, days):
 
     summary = summarize_local(local, days)
     if summary:
-        lines.append(color("Token 消耗", BOLD) + color("  claude + codex 本机会话记录", DIM))
+        lines.append(color("Token 消耗", BOLD) + color("  claude / codex / deepseek-tui 本机会话记录", DIM))
         head = (f"  {pad('区间', 16)}{pad('烧掉 token', 13)}{pad('输入(含缓存)', 14)}"
                 f"{pad('其中缓存读', 13)}输出")
         lines.append(color(head, DIM))
@@ -1203,6 +1422,7 @@ def render_text(items, local, days):
         if summary["by_source_text"]:
             lines.append(color(f"  本月分布  {summary['by_source_text']}", DIM))
         lines.append(color("  烧掉 = 输入 + 输出；缓存读已含在输入内，不重复计", DIM))
+        lines.append(color("  deepseek-tui 只上报整会话总量，统一记入输入列", DIM))
         lines.append("")
 
     if local:
@@ -1217,7 +1437,7 @@ def render_text(items, local, days):
             lines.append(color(f"  {pad('日期', 12)}{pad('来源', 9)}{pad('单位', 9)}"
                                f"{pad('烧掉', 12)}{pad('缓存读', 12)}输出", DIM))
             for day, source, data in sorted(rows, key=lambda r: (r[0], r[1]), reverse=True):
-                unit = f"{data['msgs']} " + ("条" if source == "claude" else "会话")
+                unit = _unit_label(source, data["msgs"])
                 burned = int(data.get("in_total") or 0) + int(data.get("out") or 0)
                 lines.append(
                     f"  {pad(day, 12)}{pad(source, 9)}{pad(unit, 9)}"
@@ -1336,7 +1556,7 @@ def render_html(items, local, days):
                        if summary["by_source_text"] else "")
         summary_html = (
             f'<div class="section"><h1>Token 消耗</h1>'
-            f'<div class="sub">claude + codex 本机会话记录 · 烧掉 = 输入 + 输出，'
+            f'<div class="sub">claude / codex / deepseek-tui 本机会话记录 · 烧掉 = 输入 + 输出，'
             f'缓存读已含在输入内不重复计</div>'
             f"<table><thead><tr><th>区间</th><th>烧掉 token</th><th>输入(含缓存)</th>"
             f"<th>其中缓存读</th><th>输出</th></tr></thead><tbody>{body}</tbody></table>"
@@ -1348,7 +1568,7 @@ def render_html(items, local, days):
         if not block:
             continue
         for day, data in block["days"].items():
-            unit = f"{data['msgs']} " + ("条" if block["source"] == "claude" else "会话")
+            unit = _unit_label(block["source"], data["msgs"])
             rows.append((day, block["source"], unit, data))
     if rows:
         body = "".join(
@@ -1411,8 +1631,8 @@ def gather(local_only, days):
                 return func(scan_days)
             except Exception:
                 return None
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            local = list(pool.map(_safe_local, (local_claude, local_codex)))
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            local = list(pool.map(_safe_local, (local_claude, local_codex, local_deepseek)))
     return items, local
 
 
@@ -1463,7 +1683,7 @@ def to_json(items, local, days):
 def main():
     parser = argparse.ArgumentParser(
         prog="usage-monitor",
-        description="Codex / Claude / 智谱 GLM / MiniMax / Grok Bot 额度监视器")
+        description="Codex / Claude / 智谱 GLM / MiniMax / Antigravity 额度监视器")
     parser.add_argument("--json", action="store_true", help="输出 JSON")
     parser.add_argument("--html", nargs="?", const="", metavar="PATH",
                         help="生成自包含 HTML（默认 ~/.local/share/usage-monitor/report.html）")

@@ -13,7 +13,7 @@ macOS 桌面小组件：一屏看全各个 **coding plan** 的额度余量、账
 │ DeepSeek   ¥132.86               │
 │ 智谱 GLM   5h █▁▁▁▁   5%  7d ▁▁▁▁▁   1%  │
 │ MiniMax    5h ███████ 100% 7d ████░  49% │
-│ Gemini     免费层                │
+│ Antigravity Google AI Pro        │
 │ ─────────────────────────────    │
 │ 烧掉 今日 1.76 亿 · 本月 1.76 亿  │
 └──────────────────────────────────┘
@@ -28,7 +28,7 @@ macOS 桌面小组件：一屏看全各个 **coding plan** 的额度余量、账
 | **智谱 GLM** | `~/.herdr-keys/glm.txt`、`$ZHIPU_API_KEY` 或 cc-switch | 小时窗 + 周窗 |
 | **MiniMax** | cc-switch 数据库里的 coding plan token | general / video 双模型 |
 | **DeepSeek** | `~/.deepseek/config.toml` 的 `api_key` | 只有余额，无配额窗口 |
-| **Gemini** | `~/.gemini/oauth_creds.json` | 需 gemini-cli 登录过；免费层无配额桶 |
+| **Antigravity** | `~/.gemini/oauth_creds.json` → `cloudcode-pa.googleapis.com` | AI Pro 套餐层级 + 本地活跃度；模型配额只对官方客户端开放 |
 | **Grok Bot** | `~/.grokbot/usage.json` | 由 Grok Bot 自己写入，无公开接口 |
 
 没有凭据的方案显示「缺凭据」，不影响其他行。
@@ -90,7 +90,7 @@ usage-monitor --json             # 机器可读
 usage-monitor --html out.html    # 生成自包含网页
 usage-monitor --html --wallpaper # 壁纸排版（铺满视口）
 usage-monitor --watch 60         # 持续刷新
-usage-monitor --local-only       # 不联网，只看本机会话统计
+usage-monitor --local-only       # 不联网，只看本机会话统计（claude / codex / deepseek-tui）
 usage-monitor --days 30          # 本地统计回看天数
 usage-monitor --units si         # 用 K/M/G 代替 万/亿
 ```
@@ -145,7 +145,7 @@ usage-monitor --json ──► ~/.local/share/usage-monitor/widget-data.json
 - **只能 macOS**：窗口用了 `kCGDesktopWindowLevel`，没有跨平台计划
 - **凭据不共享**：读的是本机各 CLI 的登录态，别人装了也得各自登录
 - **不会自动刷新 token**：OAuth 过期后需跑一次对应 CLI（`claude -p ok` / `gemini`）。自动刷会轮换 refresh_token，可能导致 CLI 掉登录
-- **Gemini 免费层查不到配额**：Google 已停止对 CLI 提供个体免费层，需要付费 Code Assist 许可
+- **Antigravity 的模型配额读不到**：配额接口要官方客户端自己的 `auth/aicode` 凭据（加密存储 + 本机 bridge 转交），第三方 token 一律 403；只显示套餐层级和本地会话活跃度
 - **Grok Bot 靠文件交接**：它没有公开接口，用量由它自己写入 `~/.grokbot/usage.json`
 - **未签名未公证**：首次运行可能被 Gatekeeper 拦，见下
 
@@ -164,7 +164,7 @@ codesign --force --sign - ~/.local/bin/usage-widget
 
 ```bash
 claude -p ok     # 刷新 Claude OAuth
-gemini           # 刷新 Gemini OAuth
+gemini           # 刷新 Google OAuth（Antigravity 那行也用它）
 codex            # 刷新 ChatGPT token
 ```
 

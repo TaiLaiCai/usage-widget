@@ -22,6 +22,7 @@ docs/API.md              七家接口的完整契约（含脱敏样例）
 - 六家 HTTP 接口并发拉取（`ThreadPoolExecutor`，各家独立 try/except，互不影响）
 - 接口结果按 URL 缓存 90 秒；429/5xx/网络错误时回退上次成功结果
 - 本机会话统计按文件 `mtime + size` 增量缓存到 `local-cache.json`
+- 三个本地来源口径不同：claude / codex 有逐条 usage（按消息归日）；deepseek-tui 只有整会话 `total_tokens`，按**增量记账**（首次落回会话创建日，之后每次扫描把增量记到今天），且不分输入输出，统一记入 `in_total`
 - 输出写到 `widget-data.json`，必须**原子写**（先写 `.tmp` 再 `rename`）
 
 **渲染层**（`usage-widget`，常驻进程）遵守三条硬约束：

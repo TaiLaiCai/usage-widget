@@ -11,7 +11,7 @@
 | Claude (Pro/Max) | GET | `api.anthropic.com/api/oauth/usage` | macOS Keychain / `~/.claude/.credentials.json` |
 | 智谱 GLM | GET | `open.bigmodel.cn/api/monitor/usage/quota/limit` | `~/.herdr-keys/glm.txt` |
 | MiniMax | GET | `api.minimaxi.com/v1/coding_plan/remains` | cc-switch 数据库 |
-| Gemini | POST ×2 | `cloudcode-pa.googleapis.com/v1internal:*` | `~/.gemini/oauth_creds.json` |
+| Antigravity | POST ×2 | `cloudcode-pa.googleapis.com/v1internal:*` | `~/.gemini/oauth_creds.json`（配额需官方凭据） |
 | DeepSeek | GET | `api.deepseek.com/user/balance` | `~/.deepseek/config.toml` |
 | Grok Bot | — | 无接口 | 密封存储，不可读 |
 
@@ -243,108 +243,123 @@ SELECT settings_config FROM providers WHERE name = 'MiniMax';
 
 ---
 
-## 5. Gemini（Code Assist 订阅）
+## 5. Antigravity（Google AI Pro）
 
-两个端点，都是 POST，注意路径是 `v1internal:<method>` 这种**冒号拼接**。
+Antigravity 是 Gemini 的官方 IDE。它的额度挂在 cloudcode-pa 上，但**套餐层级能查、模型配额查不到**——两件事分开说，别混成一个「失败」。
 
-### 第一步：查套餐层级
+### 第一步：查套餐层级（可用）
 
 ```
 POST https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist
 Authorization: Bearer <oauth_access_token>
 Content-Type: application/json
-User-Agent: GeminiCLI/0.66.0
+User-Agent: Antigravity/1.138.0
 ```
 
 ```json
 {
   "metadata": {
-    "ideName": "IDE_UNSPECIFIED",
+    "ideName": "ANTIGRAVITY",
     "pluginType": "GEMINI",
-    "ideVersion": "0.66.0",
-    "platform": "PLATFORM_UNSPECIFIED",
+    "ideVersion": "1.138.0",
+    "platform": "DARWIN_ARM64",
     "updateChannel": "stable"
   },
   "mode": "HEALTH_CHECK"
 }
 ```
 
-### 第二步：查配额桶
+- `ideName` 取 `ClientMetadata.IdeType` 枚举（`ANTIGRAVITY` / `JETSKI` / `VSCODE` / `GEMINI_CLI` …）
+- `pluginType` 取 `ClientMetadata.PluginType` 枚举，Antigravity 用的是 **`GEMINI`**（不是 `ANTIGRAVITY`，那个是 IdeType）
+- `ideVersion` 用本机 `/Applications/Gemini.app/Contents/Info.plist` 的 `CFBundleShortVersionString`
+- `platform` 用 `DARWIN_ARM64` / `DARWIN_AMD64`
 
-```
-POST https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota
-```
-
-```json
-{ "project": "<第一步返回的 cloudaicompanionProject>" }
-```
-
-### 凭据
-
-`~/.gemini/oauth_creds.json`
-
-```json
-{
-  "access_token": "ya29.<masked>",
-  "refresh_token": "1//<masked>",
-  "scope": "https://www.googleapis.com/auth/...",
-  "token_type": "Bearer",
-  "id_token": "<jwt>",
-  "expiry_date": 1793518818982
-}
-```
-
-账号信息在 `~/.gemini/google_accounts.json` 的 `active` 字段。
-
-### 脱敏样例
-
-第一步成功（免费层账号）：
+### 脱敏样例（实测，Google AI Pro 账号）
 
 ```json
 {
   "currentTier": {
-    "id": "free-tier",
-    "name": "Gemini Code Assist for individuals",
-    "description": "Gemini-powered code suggestions and chat in multiple IDEs"
+    "id": "standard-tier",
+    "name": "Antigravity",
+    "description": "Unlimited coding assistant with the most powerful Gemini models",
+    "userDefinedCloudaicompanionProject": true,
+    "usesGcpTos": true
   },
-  "paidTier": null,
+  "paidTier": {
+    "id": "g1-pro-tier",
+    "name": "Google AI Pro",
+    "upgradeSubscriptionUri": "https://antigravity.google/g1-upgrade"
+  },
   "cloudaicompanionProject": "aicode-consumers",
-  "allowedTiers": [{ "id": "free-tier" }, { "id": "standard-tier" }, { "id": "legacy-tier" }]
+  "gcpManaged": false,
+  "ineligibleTiers": [
+    {
+      "reasonCode": "UNSUPPORTED_LOCATION",
+      "reasonMessage": "Your current account is not eligible for Antigravity, because it is not currently available in your location.",
+      "tierId": "free-tier",
+      "tierName": "Antigravity"
+    }
+  ],
+  "manageSubscriptionUri": "https://accounts.google.com/AccountChooser?Email=<masked>&continue=https://one.google.com/settings"
 }
 ```
 
-第二步对有许可的账号：
+### 第二步：查模型配额（403，第三方读不到）
+
+```
+POST https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary
+{ "project": "<第一步的 cloudaicompanionProject>" }
+```
 
 ```json
-{
-  "buckets": [
-    { "modelId": "gemini-2.5-pro", "remainingAmount": "150", "remainingFraction": 0.75,
-      "resetTime": "2026-11-02T00:00:00Z" }
-  ]
-}
+{ "error": { "code": 403, "message": "The caller does not have permission",
+             "status": "PERMISSION_DENIED" } }
 ```
 
-第二步对免费层账号：
+同一份 token 调 `fetchAvailableModels` 也是 403，而 `loadCodeAssist` / `fetchUserInfo` 都正常——
+说明不是请求写错，是**权限不够**：这两个接口要 Antigravity 自己的 OAuth 客户端（`auth/aicode` scope）。
 
-```json
-{
-  "error": {
-    "code": 403,
-    "message": "You do not have a valid license of this product... (#3501)",
-    "status": "PERMISSION_DENIED"
-  }
+Antigravity 的凭据在 `~/Library/Application Support/com.google.GeminiMacOS/Data/user1/auth`，
+是加密容器（文件头 `2ebafeca`），由本机 host bridge（`--use_host_auth`，直连 401）转交给 `agy` 子进程，
+第三方既读不到也解不开。gemini-cli 的 token 只有 `cloud-platform` scope，所以配额这条路是封死的。
+
+**结论：第三方只能拿到套餐层级，拿不到 Antigravity 的模型额度。** 想要真配额只能用官方 App 看。
+
+### 配额结构（有权限的凭据时才用得上）
+
+`retrieveUserQuotaSummary` 的 proto 形状（`google/internal/cloud/code/v1internal/quota_summary.proto`）：
+
+```
+RetrieveUserQuotaSummaryRequest { project }
+RetrieveUserQuotaSummaryResponse {
+  groups: [{ display_name, description, buckets: [QuotaSummaryBucket] }]
+  buckets: [QuotaSummaryBucket]        // 无分组时的平铺形式
+  description
 }
+QuotaSummaryBucket { bucket_id, display_name, description, window,
+                     remaining_fraction, remaining_amount, disabled, reset_time }
 ```
 
-### 字段与坑
+- `remainingFraction` 是**剩余**比例（0–1），已用 = `1 - remainingFraction`
+- `window` 是字符串，值域未确认；归一化时把 `5h` / `5-hour` / `five_hour` 映射成「5 小时」，
+  `weekly` / `7d` / `7-day` 映射成「7 天」，否则对不上组件的窗口分类
+- `disabled=true` 表示该桶当前不可用，要单独标出来，别当 0%
+- 旧的 `retrieveUserQuota`（`buckets[{modelId, remainingAmount, remainingFraction, resetTime}]`）
+  同样 403，作为兜底解析保留
 
-- `pluginType` 必须是 **`"GEMINI"`**。写成 `"GEMINI_CLI"` 会返回 400 `Invalid value at 'metadata.plugin_type'`
-- 第二步**必须**带 `project`，值来自第一步的 `cloudaicompanionProject`
-- `remainingAmount` 是**字符串**；`remainingFraction` 是 0–1 的小数；`resetTime` 是 ISO 8601
-- 总量换算：`limit = round(remainingAmount / remainingFraction)`（`remainingFraction` 为 0 时无法推算，只能显示剩余值）
-- **403 `#3501` 不是请求错误，是账号没有付费许可**。免费层账号就长这样，应该渲染成「免费层，无配额接口」，不要当异常处理
-- 层级映射：`free-tier`→免费层，`standard-tier`→标准层，`legacy-tier`→旧版层
-- `access_token` 有效期约 1 小时（`expiry_date` 是毫秒）。过期后需要 gemini-cli 自己刷新，第三方读取时应检测过期并提示用户跑一次 `gemini`
+### 本地活跃度（拿不到配额时的替代口径）
+
+退而统计本地真实使用量，数据在 agy 维护的会话索引
+`~/.gemini/antigravity/conversation_summaries.db`（sqlite）：
+
+```sql
+SELECT conversation_id, step_count, last_modified_time, last_user_input_time
+FROM conversation_summaries;
+```
+
+- 一张 `conversation_summaries` 就是全部会话，`step_count` 是代理步数，按 `last_modified_time` 聚合到日
+- 没有 token 口径，只能给「会话数 / 步数」，别伪装成 token
+- 刚装完没聊过时表是空的，要渲染成「索引还是空的」，不是 0
 
 ---
 
@@ -469,7 +484,7 @@ Accept: application/json
 | 智谱 | `nextResetTime` | epoch 毫秒 |
 | MiniMax | `end_time` / `weekly_end_time` | epoch 毫秒 |
 | Claude | `resets_at` | ISO 8601 |
-| Gemini | `resetTime` | ISO 8601 |
+| Antigravity | `resetTime` | ISO 8601 |
 
 统一转成 UTC 再算「还剩多久」。解析函数要能接受秒、毫秒、ISO 三种输入。
 
@@ -484,7 +499,7 @@ Accept: application/json
 
 - 进度条表示**已用**百分比，颜色阈值建议 60% 转黄、85% 转红
 - 金额型（DeepSeek 余额、Claude `limit_dollars`）不要画进度条，用大字号数字 + 拆分说明
-- 三家给的是「已用」（Codex / Claude / 智谱），MiniMax 和 Gemini 给的是「剩余」，记得转换
+- 三家给的是「已用」（Codex / Claude / 智谱），MiniMax 和 Antigravity 给的是「剩余」，记得转换
 
 ### 凭据安全
 

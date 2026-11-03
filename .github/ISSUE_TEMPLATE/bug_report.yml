@@ -11,7 +11,7 @@ body:
     id: version
     attributes:
       label: 版本
-      description: `usage-monitor --json | head -1` 或者 Release 页面的 tag
+      description: "`usage-monitor --json | head -1`，或者 Release 页面的 tag"
       placeholder: v1.1.0
     validations:
       required: true

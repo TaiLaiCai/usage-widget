@@ -1,0 +1,59 @@
+name: 报告故障
+description: 某一行不显示、显示错、或者组件不出现
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        贴日志前先删掉凭据：`ya29.`、`sk-`、`Bearer ` 开头的长串一律删。
+        安全相关问题请走私密渠道，见 [SECURITY.md](../blob/main/SECURITY.md)。
+  - type: input
+    id: version
+    attributes:
+      label: 版本
+      description: `usage-monitor --json | head -1` 或者 Release 页面的 tag
+      placeholder: v1.1.0
+    validations:
+      required: true
+  - type: input
+    id: sys
+    attributes:
+      label: 系统与芯片
+      placeholder: macOS 26.1 / Apple M2
+    validations:
+      required: true
+  - type: dropdown
+    id: row
+    attributes:
+      label: 受影响的行
+      multiple: true
+      options:
+        - Codex
+        - Claude
+        - 智谱 GLM
+        - MiniMax
+        - DeepSeek
+        - Antigravity
+        - Grok Bot
+        - Token 消耗（本机统计）
+        - 组件本身（窗口不出现 / 不刷新）
+    validations:
+      required: true
+  - type: textarea
+    id: symptom
+    attributes:
+      label: 现象
+      description: 面板显示什么，期望显示什么
+    validations:
+      required: true
+  - type: textarea
+    id: json
+    attributes:
+      label: 脱敏后的采集输出
+      description: "`python3 src/usage-monitor.py --json | python3 -c \"import json,sys; d=json.load(sys.stdin); print(json.dumps([p for p in d['providers'] if p['id']=='受影响的行'], ensure_ascii=False, indent=1))\"`"
+      render: json
+  - type: textarea
+    id: extra
+    attributes:
+      label: 其他线索
+      description: 日志 `tail -20 ~/.local/share/usage-monitor/widget.log`、最近改动等

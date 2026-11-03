@@ -395,6 +395,73 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
+// MARK: - 离线快照（文档配图用：不建窗口、不联网、不读屏）
+
+func writeSnapshot(jsonPath: String, pngPath: String, scale: CGFloat, padding: CGFloat) -> Int32 {
+    _ = NSApplication.shared            // 字体度量与图形上下文要先初始化 AppKit
+
+    guard let data = try? Data(contentsOf: URL(fileURLWithPath: jsonPath)),
+          let payload = try? JSONDecoder().decode(Payload.self, from: data) else {
+        FileHandle.standardError.write(Data("解析失败：\(jsonPath)\n".utf8))
+        return 2
+    }
+
+    let view = WidgetView(frame: NSRect(x: 0, y: 0, width: 260, height: 200))
+    let formatter = DateFormatter()
+    formatter.dateFormat = "HH:mm"
+    let mtime = (try? FileManager.default.attributesOfItem(atPath: jsonPath))?[.modificationDate] as? Date
+    view.dataDate = formatter.string(from: mtime ?? Date())
+    view.payload = payload
+    view.layoutContent()
+
+    let size = NSSize(width: view.panelWidth, height: view.contentHeight())
+    view.frame = NSRect(origin: .zero, size: size)
+
+    let canvas = NSSize(width: size.width + padding * 2, height: size.height + padding * 2)
+    let pxW = Int(ceil(canvas.width * scale))
+    let pxH = Int(ceil(canvas.height * scale))
+    guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: pxW, pixelsHigh: pxH,
+                                     bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+                                     isPlanar: false, colorSpaceName: .deviceRGB,
+                                     bytesPerRow: 0, bitsPerPixel: 0),
+          let ctx = NSGraphicsContext(bitmapImageRep: rep) else {
+        FileHandle.standardError.write(Data("无法创建位图上下文\n".utf8))
+        return 3
+    }
+
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = ctx
+    ctx.cgContext.scaleBy(x: scale, y: scale)
+    ctx.cgContext.setFillColor(NSColor(calibratedRed: 0.07, green: 0.08, blue: 0.10, alpha: 1).cgColor)
+    ctx.cgContext.fill(CGRect(origin: .zero, size: canvas))
+    ctx.cgContext.translateBy(x: padding, y: padding + size.height)
+    ctx.cgContext.scaleBy(x: 1, y: -1)   // WidgetView 是 flipped 坐标
+    view.draw(view.bounds)
+    ctx.flushGraphics()
+    NSGraphicsContext.restoreGraphicsState()
+
+    guard let png = rep.representation(using: .png, properties: [:]) else { return 4 }
+    do {
+        try png.write(to: URL(fileURLWithPath: pngPath))
+    } catch {
+        FileHandle.standardError.write(Data("写入失败：\(error)\n".utf8))
+        return 5
+    }
+    print("已生成 \(pngPath)  \(pxW)×\(pxH) @\(Int(scale))x")
+    return 0
+}
+
+let arguments = CommandLine.arguments
+if let flag = arguments.firstIndex(of: "--snapshot") {
+    // usage-widget --snapshot [json] [png] [scale] [padding]
+    let fallbackJSON = NSString(string: "~/.local/share/usage-monitor/widget-data.json").expandingTildeInPath
+    let jsonPath = flag + 1 < arguments.count ? arguments[flag + 1] : fallbackJSON
+    let pngPath = flag + 2 < arguments.count ? arguments[flag + 2] : "usage-widget.png"
+    let scale = flag + 3 < arguments.count ? CGFloat(Double(arguments[flag + 3]) ?? 2) : 2
+    let padding = flag + 4 < arguments.count ? CGFloat(Double(arguments[flag + 4]) ?? 24) : 24
+    exit(writeSnapshot(jsonPath: jsonPath, pngPath: pngPath, scale: scale, padding: padding))
+}
+
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
 let delegate = AppDelegate()

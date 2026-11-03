@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 接口契约速查
+    url: https://github.com/TaiLaiCai/usage-widget/blob/main/docs/API.md
+    about: 七家方案的端点、凭据位置、字段坑，先看这里再提 issue
+  - name: 架构与数据契约
+    url: https://github.com/TaiLaiCai/usage-widget/blob/main/AGENTS.md
+    about: 想改代码（尤其是新增 provider）看这份

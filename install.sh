@@ -2,7 +2,7 @@
 # usage-widget 安装脚本
 set -euo pipefail
 
-VERSION="1.0.0"
+VERSION="$(cat "$(cd "$(dirname "$0")" && pwd)/VERSION" 2>/dev/null || echo 0.0.0)"
 REFRESH=3600
 DRY_RUN=0
 SKIP_AGENTS=0

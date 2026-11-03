@@ -1,0 +1,36 @@
+name: 新增数据源 / 接口纠正
+description: 想接一家新的 coding plan，或者发现文档里的接口变了
+labels: ["provider"]
+body:
+  - type: input
+    id: provider
+    attributes:
+      label: 哪家方案
+      placeholder: Cursor / Windsurf / Copilot ...
+    validations:
+      required: true
+  - type: textarea
+    id: api
+    attributes:
+      label: 有没有可调的额度接口
+      description: |
+        有的话贴请求（方法、端点、必要 header），**不要贴 token**。
+        没有的话说明凭据存在哪（文件 / Keychain / 加密容器），以及界面上的额度长什么样。
+      render: http
+  - type: textarea
+    id: sample
+    attributes:
+      label: 脱敏响应样例
+      render: json
+  - type: textarea
+    id: fields
+    attributes:
+      label: 字段与坑
+      description: 单位是秒还是毫秒、给的是已用还是剩余、错误码代表什么。这块最省后来人的时间。
+  - type: checkboxes
+    id: ack
+    attributes:
+      label: 确认
+      options:
+        - label: 我已经把 token、邮箱、项目号打过码
+          required: true

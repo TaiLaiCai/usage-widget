@@ -1,23 +1,17 @@
 # usage-widget
 
+![release](https://img.shields.io/github/v/release/TaiLaiCai/usage-widget)
+![license](https://img.shields.io/github/license/TaiLaiCai/usage-widget)
+![platform](https://img.shields.io/badge/platform-macOS%2013%2B-blue)
+![deps](https://img.shields.io/badge/deps-%E4%BB%85%E6%A0%87%E5%87%86%E5%BA%93-lightgrey)
+
 macOS 桌面小组件：一屏看全各个 **coding plan** 的额度余量、账户余额和 token 消耗。
 
 原生 AppKit 绘制，**不嵌 WebView**，常驻约 50 MB、空闲 CPU 接近 0。数据由独立的采集脚本按小时快照，组件只读文件——所以渲染进程永远不联网、不启子进程。
 
-```
-┌──────────────────────────────────┐
-│ 用量 17:20                       │
-│ Grok Bot   7d ████████████  93%  │
-│ Codex      5h ▁▁▁▁▁   0%  7d ████████ 100% │
-│ Claude     5h ▁▁▁▁▁   0%  7d ███████    88% │
-│ DeepSeek   ¥132.86               │
-│ 智谱 GLM   5h █▁▁▁▁   5%  7d ▁▁▁▁▁   1%  │
-│ MiniMax    5h ███████ 100% 7d ████░  49% │
-│ Antigravity Google AI Pro        │
-│ ─────────────────────────────    │
-│ 烧掉 今日 1.76 亿 · 本月 1.76 亿  │
-└──────────────────────────────────┘
-```
+![用量面板](docs/panel.png)
+
+> 配图由 `usage-widget --snapshot docs/demo-data.json docs/panel.png` 用**真实绘制代码**生成，数据取自 `docs/demo-data.json` 的演示值，不含真实账号。
 
 ## 支持的方案
 
@@ -93,6 +87,10 @@ usage-monitor --watch 60         # 持续刷新
 usage-monitor --local-only       # 不联网，只看本机会话统计（claude / codex / deepseek-tui）
 usage-monitor --days 30          # 本地统计回看天数
 usage-monitor --units si         # 用 K/M/G 代替 万/亿
+
+# 用真实绘制代码导出一张图（文档配图 / 分享用）
+usage-widget --snapshot [json] [png] [scale] [padding]
+usage-widget --snapshot docs/demo-data.json docs/panel.png 2   # 630×448 @2x
 ```
 
 日常维护：

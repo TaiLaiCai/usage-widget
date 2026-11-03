@@ -1,0 +1,250 @@
+{
+  "generated_at": "2026-11-03T01:52:06.806410+00:00",
+  "providers": [
+    {
+      "id": "grokbot",
+      "name": "Grok Bot",
+      "status": "ok",
+      "plan": "Grok Pro",
+      "account": null,
+      "source": null,
+      "windows": [
+        {
+          "label": "7 天",
+          "used_pct": 93.0,
+          "detail": null,
+          "reset_at": "2026-11-03T08:52:06.806273+00:00"
+        }
+      ],
+      "metric": null,
+      "notes": [
+        "由 Grok Bot 自己写入 usage.json"
+      ]
+    },
+    {
+      "id": "codex",
+      "name": "Codex",
+      "status": "ok",
+      "plan": "plus",
+      "account": "you@example.com",
+      "source": null,
+      "windows": [
+        {
+          "label": "5 小时",
+          "used_pct": 100.0,
+          "detail": null,
+          "reset_at": "2026-11-03T02:52:06.806273+00:00"
+        },
+        {
+          "label": "7 天",
+          "used_pct": 46.0,
+          "detail": null,
+          "reset_at": "2026-11-09T08:52:06.806273+00:00"
+        }
+      ],
+      "metric": null,
+      "notes": [
+        "当前已触发限额",
+        "gpt-6-astra 不可用，1 小时后恢复"
+      ]
+    },
+    {
+      "id": "claude",
+      "name": "Claude",
+      "status": "ok",
+      "plan": "subscription",
+      "account": null,
+      "source": null,
+      "windows": [
+        {
+          "label": "5 小时",
+          "used_pct": 39.0,
+          "detail": null,
+          "reset_at": "2026-11-03T02:22:06.806273+00:00"
+        },
+        {
+          "label": "7 天",
+          "used_pct": 94.0,
+          "detail": null,
+          "reset_at": "2026-11-03T02:10:06.806273+00:00"
+        },
+        {
+          "label": "月度预算",
+          "used_pct": 85.5,
+          "detail": "$85.48 / $100.00（剩 $14.52）",
+          "reset_at": "2026-11-06T05:52:06.806273+00:00"
+        }
+      ],
+      "metric": null,
+      "notes": [
+        "额外用量（extra usage）未启用"
+      ]
+    },
+    {
+      "id": "deepseek",
+      "name": "DeepSeek",
+      "status": "ok",
+      "plan": null,
+      "account": null,
+      "source": null,
+      "windows": [],
+      "metric": {
+        "label": "剩余余额",
+        "value": "¥129.86",
+        "sub": ""
+      },
+      "notes": []
+    },
+    {
+      "id": "zhipu",
+      "name": "智谱 GLM",
+      "status": "ok",
+      "plan": "pro",
+      "account": null,
+      "source": null,
+      "windows": [
+        {
+          "label": "5 小时",
+          "used_pct": 11.4,
+          "detail": "已用 1371 / 12000，剩 10628",
+          "reset_at": "2026-11-03T03:28:06.806273+00:00"
+        },
+        {
+          "label": "1 周",
+          "used_pct": 4.9,
+          "detail": "已用 2913 / 60000，剩 57086",
+          "reset_at": "2026-11-09T01:52:06.806273+00:00"
+        }
+      ],
+      "metric": null,
+      "notes": []
+    },
+    {
+      "id": "minimax",
+      "name": "MiniMax",
+      "status": "ok",
+      "plan": "coding plan",
+      "account": null,
+      "source": null,
+      "windows": [
+        {
+          "label": "general 5 小时",
+          "used_pct": 0.0,
+          "detail": null,
+          "reset_at": "2026-11-03T04:52:06.806273+00:00"
+        },
+        {
+          "label": "general 7 天",
+          "used_pct": 2.0,
+          "detail": null,
+          "reset_at": "2026-11-09T13:52:06.806273+00:00"
+        }
+      ],
+      "metric": null,
+      "notes": [
+        "general 周额度加成 1.5×"
+      ]
+    },
+    {
+      "id": "antigravity",
+      "name": "Antigravity",
+      "status": "ok",
+      "plan": "Google AI Pro",
+      "account": "you@example.com",
+      "source": null,
+      "windows": [],
+      "metric": {
+        "label": "本机活跃",
+        "value": "12 会话 · 84 步",
+        "sub": "今日 · 近 7 天 31 会话"
+      },
+      "notes": [
+        "层级 Antigravity（standard-tier）"
+      ]
+    }
+  ],
+  "local": {
+    "claude": {
+      "2026-11-03": {
+        "msgs": 120,
+        "in_total": 240000000,
+        "cache_read": 210000000,
+        "out": 420000
+      },
+      "2026-11-02": {
+        "msgs": 137,
+        "in_total": 231000000,
+        "cache_read": 202000000,
+        "out": 411000
+      },
+      "2026-11-01": {
+        "msgs": 154,
+        "in_total": 222000000,
+        "cache_read": 194000000,
+        "out": 402000
+      },
+      "2026-10-31": {
+        "msgs": 171,
+        "in_total": 213000000,
+        "cache_read": 186000000,
+        "out": 393000
+      },
+      "2026-10-30": {
+        "msgs": 188,
+        "in_total": 204000000,
+        "cache_read": 178000000,
+        "out": 384000
+      },
+      "2026-10-29": {
+        "msgs": 205,
+        "in_total": 195000000,
+        "cache_read": 170000000,
+        "out": 375000
+      },
+      "2026-10-28": {
+        "msgs": 222,
+        "in_total": 186000000,
+        "cache_read": 162000000,
+        "out": 366000
+      }
+    }
+  },
+  "summary": {
+    "window_days": 7,
+    "rows": [
+      {
+        "label": "今日",
+        "in_total": 240000000,
+        "cache_read": 210000000,
+        "out": 420000,
+        "msgs": 120,
+        "burned": 240420000
+      },
+      {
+        "label": "近 7 天",
+        "in_total": 1491000000,
+        "cache_read": 1302000000,
+        "out": 2751000,
+        "msgs": 1197,
+        "burned": 1493751000
+      },
+      {
+        "label": "本月 11-01 起",
+        "in_total": 693000000,
+        "cache_read": 606000000,
+        "out": 1233000,
+        "msgs": 411,
+        "burned": 694233000
+      }
+    ],
+    "by_source": {
+      "claude": {
+        "in_total": 693000000,
+        "cache_read": 606000000,
+        "out": 1233000,
+        "msgs": 411,
+        "burned": 694233000
+      }
+    }
+  }
+}

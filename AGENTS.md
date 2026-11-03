@@ -13,6 +13,10 @@ scripts/build.sh         编译通用二进制到 bin/
 scripts/package.sh       打发布包到 release/
 install.sh / uninstall.sh  安装与卸载（路径全部基于 $HOME）
 docs/API.md              七家接口的完整契约（含脱敏样例）
+docs/panel.png           README 配图（由 --snapshot 生成，非手绘）
+docs/demo-data.json      配图用的脱敏演示数据
+SECURITY.md              凭据边界与漏洞报告渠道
+CONTRIBUTING.md          提 PR 前的自检清单
 ```
 
 ## 两层架构与不变量
@@ -92,6 +96,12 @@ docs/API.md              七家接口的完整契约（含脱敏样例）
 百分比在槽内右对齐，`100%` 顶满也不会越过段间距。面板宽度 = 最宽内容 + 两侧各 12，所以右侧不会留空档。
 
 改尺寸只动文件顶部的常量；`layoutContent()` 和 `drawSegment()` 共用同一组常量，不要在绘制里另算。
+
+## 离线快照
+
+`usage-widget --snapshot [json] [png] [scale] [padding]` 用同一套绘制代码离屏出图：
+不建窗口、不联网、不读屏。README 的配图就是 `--snapshot docs/demo-data.json docs/panel.png 2 24` 生成的。
+改绘制代码后重跑一次，别让配图和真实排版漂开。
 
 ## 构建与验证
 
